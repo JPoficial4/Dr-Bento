@@ -20,7 +20,7 @@ body {
 }
 
 #game-container {
-    background-color: rgba(0, 0, 0, 0.6);
+    background-color: rgba(0,0,0,0.6);
     padding: 15px;
     border-radius: 10px;
 }
@@ -30,6 +30,10 @@ body {
     background: #000;
 }
 
+#scientist {
+    width: 80px;
+    border-radius: 50%;
+}
 </style>
 </head>
 
@@ -38,8 +42,7 @@ body {
     <h1>Dr. BENTO</h1>
     <p>PONTUAÇÃO: <span id="score">0</span></p>
     <canvas id="game-board" width="200" height="275"></canvas>
-
-    <img src="assets/scientist.gif" width="80">
+    <img id="scientist" src="assets/scientist.gif">
 </div>
 
 <script>
@@ -58,7 +61,11 @@ let board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
 let lastTime = 0;
 let dropCounter = 0;
 let gameOver = false;
+let virusesToPlace = 0;
 
+const SAFE_START_ROW_FOR_VIRUS = 3;
+
+// ✅ FIXED PATHS
 const pills = {
     red: "assets/red.png",
     blue: "assets/blue.png",
@@ -71,24 +78,60 @@ const pills = {
 let currentPill;
 const imageCache = {};
 
+// ✅ FIXED PRELOAD (no freeze)
 function preloadImages() {
     let total = Object.keys(pills).length;
     let loaded = 0;
 
     function done() {
         loaded++;
-        if (loaded === total) initGame();
+        if (loaded === total) {
+            initGame();
+        }
     }
 
     for (const key in pills) {
         const img = new Image();
         img.onload = done;
-        img.onerror = done; // prevents game from freezing
+        img.onerror = done;
         img.src = pills[key];
         imageCache[key] = img;
     }
 }
 
+// ---------------- VIRUS SYSTEM ----------------
+function generateViruses(level) {
+    const VIRUS_COUNT = 4 * level;
+    const colors = ["red","blue","yellow"];
+    let placed = 0;
+
+    while (placed < VIRUS_COUNT) {
+        let x = Math.floor(Math.random() * COLS);
+        let y = Math.floor(Math.random() * (ROWS - SAFE_START_ROW_FOR_VIRUS)) + SAFE_START_ROW_FOR_VIRUS;
+
+        if (!board[y][x]) {
+            board[y][x] = { x, y, color: colors[Math.floor(Math.random()*3)], type: "virus" };
+            placed++;
+        }
+    }
+}
+
+function placeNewViruses(count) {
+    const colors = ["red","blue","yellow"];
+    let placed = 0;
+
+    while (placed < count) {
+        let x = Math.floor(Math.random() * COLS);
+        let y = Math.floor(Math.random() * (ROWS - SAFE_START_ROW_FOR_VIRUS)) + SAFE_START_ROW_FOR_VIRUS;
+
+        if (!board[y][x]) {
+            board[y][x] = { x, y, color: colors[Math.floor(Math.random()*3)], type: "virus" };
+            placed++;
+        }
+    }
+}
+
+// ---------------- GAME LOGIC ----------------
 function createPill() {
     const colors = ["red","blue","yellow"];
     return {
@@ -113,20 +156,102 @@ function movePill(dx,dy){
 }
 
 function lockPill(){
-    board[currentPill.y][currentPill.x]=currentPill;
-    currentPill=createPill();
-    if(!isValidMove(currentPill.x,currentPill.y)) gameOver=true;
+    board[currentPill.y][currentPill.x] = currentPill;
+
+    checkAndClearMatches();
+
+    if (virusesToPlace > 0) {
+        placeNewViruses(virusesToPlace);
+        virusesToPlace = 0;
+    }
+
+    currentPill = createPill();
+
+    if (!isValidMove(currentPill.x,currentPill.y)) {
+        gameOver = true;
+    }
 }
 
-function drawBlock(block) {
+// ---------------- MATCH SYSTEM ----------------
+function findMatches(r,c,dr,dc){
+    const block = board[r][c];
+    if (!block) return [];
+
+    let line = [{r,c}];
+    let nr = r+dr, nc = c+dc;
+
+    while (nr>=0 && nr<ROWS && nc>=0 && nc<COLS) {
+        let next = board[nr][nc];
+        if (next && next.color === block.color) {
+            line.push({r:nr,c:nc});
+        } else break;
+        nr+=dr;
+        nc+=dc;
+    }
+
+    return line.length >= 4 ? line : [];
+}
+
+function checkAndClearMatches(){
+    let blocksToClear = [];
+
+    for(let r=0;r<ROWS;r++){
+        for(let c=0;c<COLS;c++){
+            if(board[r][c]){
+                blocksToClear.push(...findMatches(r,c,0,1));
+                blocksToClear.push(...findMatches(r,c,1,0));
+            }
+        }
+    }
+
+    if(blocksToClear.length){
+        let unique = [...new Set(blocksToClear.map(b=>b.r+","+b.c))]
+            .map(s=>{
+                let [r,c]=s.split(",").map(Number);
+                return {r,c};
+            });
+
+        unique.forEach(b=>{
+            if(board[b.r][b.c].type==="virus"){
+                score += 100;
+                virusesToPlace++;
+            }
+            board[b.r][b.c]=null;
+        });
+
+        scoreDisplay.textContent = score;
+        applyGravity();
+    }
+}
+
+function applyGravity(){
+    for(let c=0;c<COLS;c++){
+        for(let r=ROWS-1;r>=0;r--){
+            if(board[r][c]){
+                let nr=r;
+                while(nr+1<ROWS && !board[nr+1][c]){
+                    nr++;
+                }
+                if(nr!==r){
+                    board[nr][c]=board[r][c];
+                    board[nr][c].y=nr;
+                    board[r][c]=null;
+                }
+            }
+        }
+    }
+}
+
+// ---------------- DRAW ----------------
+function drawBlock(block){
     const key = block.type === 'virus' ? `virus_${block.color}` : block.color;
     const img = imageCache[key];
 
-    if (img && img.complete && img.naturalWidth !== 0) {
-        ctx.drawImage(img, block.x * CELL, block.y * CELL, CELL, CELL);
+    if(img && img.complete && img.naturalWidth !== 0){
+        ctx.drawImage(img, block.x*CELL, block.y*CELL, CELL, CELL);
     } else {
-        ctx.fillStyle = block.color || "white";
-        ctx.fillRect(block.x * CELL, block.y * CELL, CELL, CELL);
+        ctx.fillStyle = block.color;
+        ctx.fillRect(block.x*CELL, block.y*CELL, CELL, CELL);
     }
 }
 
@@ -142,40 +267,43 @@ function draw(){
     if(currentPill) drawBlock(currentPill);
 }
 
+// ---------------- LOOP ----------------
 function update(time=0){
     if(gameOver){
         ctx.fillStyle="red";
-        ctx.font="20px Arial";
-        ctx.fillText("GAME OVER",40,130);
+        ctx.fillText("GAME OVER",50,120);
         return;
     }
 
-    const delta=time-lastTime;
-    lastTime=time;
-    dropCounter+=delta;
+    const delta = time - lastTime;
+    lastTime = time;
+    dropCounter += delta;
 
-    if(dropCounter>speed){
+    if(dropCounter > speed){
         if(!movePill(0,1)) lockPill();
-        dropCounter=0;
+        dropCounter = 0;
     }
 
     draw();
     requestAnimationFrame(update);
 }
 
-document.addEventListener("keydown",e=>{
+// ---------------- CONTROLS ----------------
+document.addEventListener("keydown", e=>{
     if(gameOver) return;
     if(e.key==="ArrowLeft") movePill(-1,0);
     if(e.key==="ArrowRight") movePill(1,0);
     if(e.key==="ArrowDown") movePill(0,1);
 });
 
+// ---------------- INIT ----------------
 function initGame(){
-    currentPill=createPill();
+    generateViruses(1);
+    currentPill = createPill();
     requestAnimationFrame(update);
 }
 
-window.onload=preloadImages;
+window.onload = preloadImages;
 </script>
 </body>
 </html>
