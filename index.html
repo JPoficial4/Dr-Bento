@@ -3,12 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Dr. Bento - Fixed</title>
+<title>Dr. Bento</title>
 
 <style>
 body {
     margin: 0;
-    background: url("images/lab_background.png") center/cover no-repeat fixed;
+    background: url("assets/lab_background.png") center/cover no-repeat fixed;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -18,23 +18,28 @@ body {
     font-family: Arial, sans-serif;
     text-align: center;
 }
+
 #game-container {
-    background-color: rgba(0,0,0,0.6);
+    background-color: rgba(0, 0, 0, 0.6);
     padding: 15px;
     border-radius: 10px;
 }
-canvas {
+
+#game-board {
     border: 4px solid #fff;
     background: #000;
 }
+
 </style>
 </head>
 
 <body>
 <div id="game-container">
-<h1>Dr. BENTO</h1>
-<p>PONTUAÇÃO: <span id="score">0</span></p>
-<canvas id="game-board" width="200" height="275"></canvas>
+    <h1>Dr. BENTO</h1>
+    <p>PONTUAÇÃO: <span id="score">0</span></p>
+    <canvas id="game-board" width="200" height="275"></canvas>
+
+    <img src="assets/scientist.gif" width="80">
 </div>
 
 <script>
@@ -42,7 +47,9 @@ const canvas = document.getElementById("game-board");
 const ctx = canvas.getContext("2d");
 const scoreDisplay = document.getElementById("score");
 
-const COLS = 8, ROWS = 11, CELL = 25;
+const COLS = 8;
+const ROWS = 11;
+const CELL = 25;
 
 let score = 0;
 let speed = 3000;
@@ -51,18 +58,14 @@ let board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
 let lastTime = 0;
 let dropCounter = 0;
 let gameOver = false;
-let virusesToPlace = 0;
 
-const SAFE_START_ROW_FOR_VIRUS = 3;
-
-/* FIXED FILE NAMES (NO SPACES, LOWERCASE) */
 const pills = {
-    red: "images/red.png",
-    blue: "images/blue.png",
-    yellow: "images/yellow.png",
-    virus_red: "images/virus_red.gif",
-    virus_blue: "images/virus_blue.gif",
-    virus_yellow: "images/virus_yellow.gif"
+    red: "assets/red.png",
+    blue: "assets/blue.png",
+    yellow: "assets/yellow.png",
+    virus_red: "assets/virus_red.gif",
+    virus_blue: "assets/virus_blue.gif",
+    virus_yellow: "assets/virus_yellow.gif"
 };
 
 let currentPill;
@@ -80,7 +83,7 @@ function preloadImages() {
     for (const key in pills) {
         const img = new Image();
         img.onload = done;
-        img.onerror = done; // FIX: game still starts even if image fails
+        img.onerror = done; // prevents game from freezing
         img.src = pills[key];
         imageCache[key] = img;
     }
@@ -115,27 +118,35 @@ function lockPill(){
     if(!isValidMove(currentPill.x,currentPill.y)) gameOver=true;
 }
 
-function drawBlock(b){
-    const key = b.type==="virus" ? "virus_"+b.color : b.color;
+function drawBlock(block) {
+    const key = block.type === 'virus' ? `virus_${block.color}` : block.color;
     const img = imageCache[key];
-    if(img && img.complete){
-        ctx.drawImage(img,b.x*CELL,b.y*CELL,CELL,CELL);
+
+    if (img && img.complete && img.naturalWidth !== 0) {
+        ctx.drawImage(img, block.x * CELL, block.y * CELL, CELL, CELL);
     } else {
-        ctx.fillStyle=b.color;
-        ctx.fillRect(b.x*CELL,b.y*CELL,CELL,CELL);
+        ctx.fillStyle = block.color || "white";
+        ctx.fillRect(block.x * CELL, block.y * CELL, CELL, CELL);
     }
 }
 
 function draw(){
     ctx.clearRect(0,0,canvas.width,canvas.height);
-    board.forEach(row=>row.forEach(cell=>cell && drawBlock(cell)));
+
+    for(let r=0;r<ROWS;r++){
+        for(let c=0;c<COLS;c++){
+            if(board[r][c]) drawBlock(board[r][c]);
+        }
+    }
+
     if(currentPill) drawBlock(currentPill);
 }
 
 function update(time=0){
     if(gameOver){
         ctx.fillStyle="red";
-        ctx.fillText("GAME OVER",50,120);
+        ctx.font="20px Arial";
+        ctx.fillText("GAME OVER",40,130);
         return;
     }
 
