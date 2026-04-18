@@ -1,0 +1,512 @@
+﻿<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dr. Bento - Jogo Final Definitivo (Lento e Difícil)</title>
+    
+    <style>
+        body {
+            margin: 0;
+            /* CERTIFIQUE-SE DE QUE ESTE CAMINHO ESTÁ CORRETO */
+            background: url("images/lab_background.png") center/cover no-repeat fixed;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            text-align: center;
+        }
+
+
+        #game-container {
+            background-color: rgba(0, 0, 0, 0.6);
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+        }
+
+
+        h1 {
+            color: #ffcc00;
+            text-shadow: 1px 1px 2px #000;
+            margin-bottom: 5px;
+        }
+
+
+        #game-board {
+            /* DIMENSÃO ATUAL: 8 COLUNAS * 25px = 200px | 11 LINHAS * 25px = 275px */
+            border: 4px solid #fff;
+            border-radius: 5px;
+            margin: 10px auto;
+            display: block;
+            background-color: #000000;
+        }
+
+
+        #score {
+            font-weight: bold;
+            color: #00ff00;
+        }
+
+
+        .controls {
+            font-size: 12px;
+            margin-top: 15px;
+            color: #ccc;
+        }
+
+
+        #scientist {
+            width: 80px;
+            height: auto;
+            margin-top: 10px;
+            border: 2px solid #ccc;
+            border-radius: 50%;
+            display: block;
+            margin-left: auto;
+            margin-right: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <h1>Dr. BENTO</h1>
+        <p>PONTUAÇÃO: <span id="score">0</span></p>
+        
+        <canvas id="game-board" width="200" height="275"></canvas>
+        
+        <p class="controls">
+            **PC/Chromebook:** ← → (Mover) | ↓ (Cair Rápido)<br>
+            **MOBILE:** Deslizar Esquerda/Direita (Mover) | Deslizar para Baixo (Cair Rápido)
+        </p>
+        
+        <img id="scientist" src="images/scientist.gif" alt="Cientista">
+    </div>
+
+
+    <script>
+        // Constantes do Jogo
+        const canvas = document.getElementById("game-board");
+        const ctx = canvas.getContext("2d");
+        const scoreDisplay = document.getElementById("score");
+
+
+        const COLS = 8;
+        const ROWS = 11; // 11 Linhas (0 a 10)
+        const CELL = 25; 
+        
+        let score = 0;
+        let speed = 3000; // *** VELOCIDADE INICIAL: 3.0 SEGUNDOS (MUITO LENTO) ***
+        let board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+
+
+        let lastTime = 0;
+        let dropCounter = 0;
+        let gameOver = false;
+        let virusesToPlace = 0; 
+        
+        // Linhas 0, 1 e 2 são seguras para queda. Vírus só aparecem da Linha 3 (quarta linha) para baixo.
+        const SAFE_START_ROW_FOR_VIRUS = 3; 
+
+
+        // =========================================================
+        // CAMINHOS DE IMAGEM: VERIFIQUE SE OS NOMES ESTÃO CORRETOS
+        // =========================================================
+        const pills = {
+            // Caminhos presumidos:
+            red: "images/new piskel (1).png",      
+            blue: "images/new piskel (2).png",     
+            yellow: "images/new piskel (3).png",   
+            
+            virus_red: "images/virus-2.gif", 
+            virus_blue: "images/virus-1.gif", 
+            virus_yellow: "images/virus-3.gif", 
+        };
+
+
+        let currentPill; 
+        
+        const imageCache = {};
+        function preloadImages() {
+            let criticalImagesLoaded = 0;
+            const criticalKeys = Object.keys(pills); 
+
+
+            for (const key in pills) {
+                const img = new Image();
+                img.onload = () => {
+                    criticalImagesLoaded++;
+                    if (criticalImagesLoaded === criticalKeys.length) {
+                        console.log("SUCESSO: Imagens críticas carregadas. Iniciando o jogo...");
+                        initGame();
+                    }
+                };
+                img.onerror = () => {
+                    console.error(`ERRO CRÍTICO: Falha ao carregar a imagem: ${pills[key]}. CAUSA PROVÁVEL: Diferença de Maiúsculas/Minúsculas no nome do arquivo na pasta 'images/'.`);
+                };
+                img.src = pills[key];
+                imageCache[key] = img;
+            }
+        }
+
+
+        // =========================================================
+        // FUNÇÕES DE CRIAÇÃO E LÓGICA
+        // =========================================================
+
+
+        function generateViruses(level) {
+            const VIRUS_COUNT = 4 * level; 
+            const colors = ["red", "blue", "yellow"];
+            let virusesPlaced = 0;
+
+
+            for(let r = 0; r < ROWS; r++) {
+                for(let c = 0; c < COLS; c++) {
+                    if(board[r][c] && board[r][c].type === 'virus') {
+                        board[r][c] = null;
+                    }
+                }
+            }
+            
+            while (virusesPlaced < VIRUS_COUNT) {
+                let c = Math.floor(Math.random() * COLS);
+                // Geração do vírus: Da Linha 3 até a linha 10.
+                let r = Math.floor(Math.random() * (ROWS - SAFE_START_ROW_FOR_VIRUS)) + SAFE_START_ROW_FOR_VIRUS; 
+
+
+                if (!board[r][c]) {
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+                    board[r][c] = { x: c, y: r, color: color, type: "virus" }; 
+                    virusesPlaced++;
+                }
+            }
+        }
+        
+        function placeNewViruses(count) {
+            const colors = ["red", "blue", "yellow"];
+            let virusesPlaced = 0;
+            
+            while (virusesPlaced < count) {
+                let c = Math.floor(Math.random() * COLS);
+                // Colocação de vírus: Da Linha 3 até a linha 10.
+                let r = Math.floor(Math.random() * (ROWS - SAFE_START_ROW_FOR_VIRUS)) + SAFE_START_ROW_FOR_VIRUS; 
+
+
+                if (!board[r][c]) {
+                    const color = colors[Math.floor(Math.random() * colors.length)];
+                    board[r][c] = { x: c, y: r, color: color, type: "virus" }; 
+                    virusesPlaced++;
+                }
+            }
+        }
+
+
+        function createPill() {
+            const singleColors = ["red", "blue", "yellow"];
+            const color = singleColors[Math.floor(Math.random() * singleColors.length)];
+            
+            return {
+                x: Math.floor(COLS / 2), 
+                y: 0, 
+                color: color, 
+                type: "pill" 
+            };
+        }
+
+
+        function isValidMove(x, y) {
+            if (x < 0 || x >= COLS || y < 0 || y >= ROWS) return false;
+            if (board[y][x]) return false;
+            return true;
+        }
+
+
+        function canMove(dx, dy) {
+            const nextX = currentPill.x + dx;
+            const nextY = currentPill.y + dy;
+            
+            return isValidMove(nextX, nextY);
+        }
+
+
+        function movePill(dx, dy) {
+            if (canMove(dx, dy)) {
+                currentPill.x += dx;
+                currentPill.y += dy;
+                return true;
+            }
+            return false;
+        }
+
+
+        function lockPill() {
+            board[currentPill.y][currentPill.x] = currentPill;
+
+
+            checkAndClearMatches(); 
+            
+            // Reaparecimento de vírus: A cada vírus destruído na cascata, um novo é colocado.
+            if (virusesToPlace > 0) {
+                placeNewViruses(virusesToPlace);
+                virusesToPlace = 0; 
+            }
+
+
+            currentPill = createPill();
+            
+            if (!canMove(0, 0)) {
+                gameOver = true;
+            }
+        }
+
+
+        function findMatches(r, c, dr, dc) {
+            const block = board[r][c];
+            if (!block) return [];
+
+
+            let currentLine = [{r, c}];
+            let nr = r + dr, nc = c + dc;
+            
+            while (nr >= 0 && nr < ROWS && nc >= 0 && nc < COLS) {
+                const nextBlock = board[nr][nc];
+                if (nextBlock && nextBlock.color === block.color) { 
+                    currentLine.push({r: nr, c: nc});
+                } else {
+                    break;
+                }
+                nr += dr;
+                nc += dc;
+            }
+            return currentLine.length >= 4 ? currentLine : [];
+        }
+
+
+        function checkAndClearMatches() {
+            let matchesFound = false;
+            let blocksToClear = [];
+            const visited = Array.from({ length: ROWS }, () => Array(COLS).fill(false));
+
+
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (board[r][c] && !visited[r][c]) {
+                        
+                        let horizontalMatches = findMatches(r, c, 0, 1);
+                        if (horizontalMatches.length >= 4) {
+                            blocksToClear.push(...horizontalMatches);
+                            matchesFound = true;
+                        }
+                        
+                        let verticalMatches = findMatches(r, c, 1, 0);
+                        if (verticalMatches.length >= 4) {
+                            blocksToClear.push(...verticalMatches);
+                            matchesFound = true;
+                        }
+
+
+                        if (horizontalMatches.length >= 4 || verticalMatches.length >= 4) {
+                            blocksToClear.forEach(b => visited[b.r][b.c] = true);
+                        }
+                    }
+                }
+            }
+            
+            if (matchesFound) {
+                const uniqueBlocks = Array.from(new Set(blocksToClear.map(b => `${b.r},${b.c}`)))
+                                        .map(s => {
+                                            const [r, c] = s.split(',').map(Number);
+                                            return {r, c};
+                                        });
+
+
+                let points = 0;
+                
+                uniqueBlocks.forEach(b => {
+                    if (board[b.r][b.c].type === 'virus') {
+                        points += 100; // PONTUAÇÃO APENAS POR VÍRUS
+                        virusesToPlace++; 
+                    } 
+                    // Se for um bloco 'pill', a pontuação é 0 (padrão 'points += 0')
+                    
+                    board[b.r][b.c] = null;
+                });
+
+
+                addScore(points);
+                applyGravity(); 
+            }
+            
+            return matchesFound;
+        }
+
+
+        function applyGravity() {
+            let blocksFell = false;
+            
+            for (let c = 0; c < COLS; c++) {
+                let fallDistance = 0;
+                
+                for (let r = ROWS - 1; r >= 0; r--) {
+                    if (board[r][c] === null) {
+                        fallDistance++;
+                    } else if (fallDistance > 0) {
+                        board[r + fallDistance][c] = board[r][c];
+                        board[r + fallDistance][c].y = r + fallDistance;
+                        board[r][c] = null;
+                        blocksFell = true;
+                    }
+                }
+            }
+
+
+            if (blocksFell) {
+                checkAndClearMatches(); 
+            }
+        }
+
+
+
+
+        function drawBlock(block) {
+            const key = block.type === 'virus' ? `virus_${block.color}` : block.color;
+            const img = imageCache[key]; 
+            
+            if (img && img.complete) {
+                ctx.drawImage(img, block.x * CELL, block.y * CELL, CELL, CELL); 
+            } else {
+                ctx.fillStyle = block.color || 'white'; 
+                ctx.fillRect(block.x * CELL, block.y * CELL, CELL, CELL);
+            }
+        }
+
+
+        function drawBoard() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (board[r][c]) {
+                        drawBlock(board[r][c]); 
+                    }
+                }
+            }
+
+
+            if (currentPill) {
+                drawBlock(currentPill);
+            }
+        }
+
+
+        function addScore(points) {
+            score += points;
+            scoreDisplay.textContent = score;
+            
+            // PROGRESSÃO DE VELOCIDADE MUITO MAIS LENTA (Inicia em 3000ms)
+            if (score >= 400 && score < 1200) speed = 2500;  
+            else if (score >= 1200 && score < 2500) speed = 2000;  
+            else if (score >= 2500) speed = 1500;  
+        }
+
+
+        function dropPill() {
+            const moved = movePill(0, 1);
+
+
+            if (!moved) {
+                lockPill();
+                dropCounter = 0;
+            }
+        }
+
+
+        function updateGame(time = 0) {
+            if (gameOver) {
+                drawBoard(); 
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, canvas.height / 2 - 50, canvas.width, 100);
+                ctx.font = '30px Arial';
+                ctx.fillStyle = 'red';
+                ctx.textAlign = 'center';
+                ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 + 10);
+                return; 
+            }
+
+
+            const deltaTime = time - lastTime;
+            lastTime = time;
+            
+            dropCounter += deltaTime;
+            
+            if (dropCounter > speed) {
+                dropPill();
+            }
+
+
+            drawBoard();
+            requestAnimationFrame(updateGame);
+        }
+
+
+        document.addEventListener("keydown", e => {
+            if (gameOver || !currentPill) return;
+            if (e.key === "ArrowLeft") movePill(-1, 0);
+            if (e.key === "ArrowRight") movePill(1, 0);
+            if (e.key === "ArrowDown") {
+                movePill(0, 1);
+            }
+        });
+
+
+        let touchStartX = 0;
+        let touchStartY = 0;
+
+
+        canvas.addEventListener("touchstart", e => {
+            e.preventDefault(); 
+            
+            if (gameOver || !currentPill) return;
+            const touch = e.touches[0];
+            touchStartX = touch.clientX;
+            touchStartY = touch.clientY;
+        });
+
+
+        canvas.addEventListener("touchend", e => {
+            e.preventDefault(); 
+            
+            if (gameOver || !currentPill) return;
+            const touch = e.changedTouches[0];
+            const dx = touch.clientX - touchStartX;
+            const dy = touch.clientY - touchStartY;
+
+
+            if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 20) {
+                const moveX = dx > 0 ? 1 : -1;
+                movePill(moveX, 0); 
+            } else if (dy > 30) { 
+                while (movePill(0, 1)) {
+                }
+                dropCounter = 0; 
+            }
+        });
+
+
+        function initGame() {
+            generateViruses(1); 
+            currentPill = createPill(); 
+            
+            requestAnimationFrame(updateGame); 
+        }
+
+
+        window.onload = preloadImages;
+    </script>
+</body>
+</html>
